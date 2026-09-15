@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useOptimistic, useTransition } from "react";
 import { Trash2, Shield, User as UserIcon } from "lucide-react";
 import { deleteUserAction } from "@/lib/actions/users";
 import { cn } from "@/lib/utils";
@@ -22,18 +22,32 @@ interface UserTableProps {
 }
 
 export function UserTable({ users, onRefresh }: UserTableProps) {
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
 
-  const handleDelete = async (id: string) => {
+  // React 19 Multi-Action Optimistic Sync
+  const [optimisticUsers, setOptimisticUsers] = useOptimistic(
+    users,
+    (currentUsers, deletedId: string) =>
+      currentUsers.filter((user) => user.id !== deletedId)
+  );
+
+  const handleDelete = (id: string) => {
     if (!confirm("Are you sure you want to delete this user? This will trigger a security alert.")) {
       return;
     }
-    setDeletingId(id);
-    const res = await deleteUserAction(id);
-    setDeletingId(null);
-    if (res.success && onRefresh) {
-      onRefresh();
-    }
+
+    startTransition(async () => {
+      // 1. Instant client side optimistic deletion
+      setOptimisticUsers(id);
+
+      // 2. Resolve background network mutation
+      const res = await deleteUserAction(id);
+      if (res.success) {
+        if (onRefresh) onRefresh();
+      } else {
+        alert(res.error || "Failed to delete user on server");
+      }
+    });
   };
 
   return (
@@ -54,14 +68,14 @@ export function UserTable({ users, onRefresh }: UserTableProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border/30 text-sm">
-            {users.length === 0 ? (
+            {optimisticUsers.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground">
                   No users found in database.
                 </td>
               </tr>
             ) : (
-              users.map((user) => (
+              optimisticUsers.map((user) => (
                 <tr
                   key={user.id}
                   id={`user-row-${user.id}`}
@@ -110,7 +124,7 @@ export function UserTable({ users, onRefresh }: UserTableProps) {
                   <td className="px-6 py-4 text-right">
                     <button
                       onClick={() => handleDelete(user.id)}
-                      disabled={deletingId === user.id}
+                      disabled={isPending}
                       id={`btn-delete-user-${user.id}`}
                       data-testid={`btn-delete-user-${user.id}`}
                       className="p-2 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-all disabled:opacity-50"
