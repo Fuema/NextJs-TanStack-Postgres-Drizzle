@@ -1,0 +1,7 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "Running pre-commit quality guards..."
+npx tsc --noEmit || exit 1
+npm test || exit 1
+echo "Pre-commit checks passed cleanly!"
